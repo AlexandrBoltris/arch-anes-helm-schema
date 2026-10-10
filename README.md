@@ -122,6 +122,40 @@ make plugin-package
 
 Release packages must contain a native binary for their target platform.
 
+## Download a prebuilt binary
+
+Each `v*` tag publishes a GitHub release with archives for macOS (arm64 and
+amd64), Linux (amd64 and arm64), and Windows (amd64), and a `checksums.txt`
+file:
+
+```sh
+version=0.1.0
+curl -LO "https://github.com/arch-anes/helm-schema/releases/download/v$version/helm-schema_${version}_darwin_arm64.tar.gz"
+tar -xzf "helm-schema_${version}_darwin_arm64.tar.gz"
+"helm-schema_${version}_darwin_arm64/helm-schema" --version
+```
+
+The macOS binaries are not signed or notarized. If you download an archive with
+a browser, remove the quarantine attribute before you run the binary:
+
+```sh
+xattr -d com.apple.quarantine helm-schema
+```
+
+## Use the container image
+
+Each `v*` tag also publishes a multi-architecture (`linux/amd64`,
+`linux/arm64`) image to `ghcr.io/arch-anes/helm-schema`. Mount the chart at
+`/chart` and run as your own user so that the generated schemas belong to you:
+
+```sh
+docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/chart" ghcr.io/arch-anes/helm-schema:0.1.0
+```
+
+On macOS, Docker Desktop, OrbStack, and Colima run the `linux/arm64` image. The
+image includes `/bin/sh`, so you can also use it as a CI job image and run
+`helm-schema path/to/chart` in a script.
+
 ## Development
 
 Run all unit, plugin, and Helm lint tests:
