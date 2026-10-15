@@ -6,11 +6,14 @@ import "testing"
 
 func TestMarkPath(t *testing.T) {
 	usage := NewUsage()
-	usage.MarkPath("child", "enabled")
+	usage.MarkPath("example/Chart.yaml", "child", "enabled")
 
 	child := usage.Properties["child"]
 	if child == nil || child.Properties["enabled"] == nil || !child.Properties["enabled"].Read {
 		t.Fatalf("marked usage = %#v", usage)
+	}
+	if sources := child.Properties["enabled"].Sources; len(sources) != 1 || sources[0] != "example/Chart.yaml" {
+		t.Fatalf("metadata source = %#v", sources)
 	}
 }
 
@@ -49,7 +52,7 @@ func TestApplyValueFlowsCopiesUsageToDestinations(t *testing.T) {
 
 func TestApplyValueFlowsHandlesCycles(t *testing.T) {
 	usage := NewUsage()
-	usage.MarkPath("left", "value")
+	usage.MarkPath("example/Chart.yaml", "left", "value")
 	flows := []ValueFlow{
 		{Source: []string{"right"}, Destination: []string{"left"}},
 		{Source: []string{"left"}, Destination: []string{"right"}},
@@ -79,5 +82,42 @@ func TestApplyValueFlowsPreservesEveryUsageMode(t *testing.T) {
 	if destination == nil || !destination.Read || !destination.Exact ||
 		!destination.AllowUnknown || !destination.Open || !destination.Iterated {
 		t.Fatalf("flow destination usage = %#v", destination)
+	}
+}
+
+func TestApplyValueFlowsCopiesSources(t *testing.T) {
+	usage := NewUsage()
+	usage.record(referenceForProperties("global", "region"), readValue, "example/templates/configmap.yaml")
+	flows := []ValueFlow{
+		{Source: []string{"global"}, Destination: []string{"worker", "global"}},
+	}
+
+	if err := ApplyValueFlows(usage, flows); err != nil {
+		t.Fatal(err)
+	}
+	region := usage.Properties["worker"].Properties["global"].Properties["region"]
+	if region == nil {
+		t.Fatal("flow destination is missing")
+	}
+	if len(region.Sources) != 1 || region.Sources[0] != "example/templates/configmap.yaml" {
+		t.Fatalf("flow destination sources = %#v", region.Sources)
+	}
+}
+
+func TestAddSourceKeepsNamesSortedAndUnique(t *testing.T) {
+	usage := NewUsage()
+	usage.AddSource("b.yaml")
+	usage.AddSource("a.yaml")
+	usage.AddSource("b.yaml")
+	usage.AddSource("")
+
+	want := []string{"a.yaml", "b.yaml"}
+	if len(usage.Sources) != len(want) {
+		t.Fatalf("sources = %#v", usage.Sources)
+	}
+	for index, name := range want {
+		if usage.Sources[index] != name {
+			t.Fatalf("sources = %#v", usage.Sources)
+		}
 	}
 }

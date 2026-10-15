@@ -80,6 +80,10 @@ func (d Diagnostic) String() string {
 // consumes the complete selected value. Structural evidence below that value
 // also consumes all descendants below that value. Serialized means the complete
 // value is converted without requiring a particular JSON shape.
+//
+// Sources names the chart files whose evaluation produced this evidence. It is
+// an annotation: it documents a value for a chart user and never changes which
+// values a schema accepts.
 type Usage struct {
 	Read         bool
 	Exact        bool
@@ -87,6 +91,7 @@ type Usage struct {
 	Open         bool
 	Serialized   bool
 	Iterated     bool
+	Sources      []string
 	Properties   map[string]*Usage
 	Additional   *Usage
 	Items        *Usage
@@ -98,9 +103,23 @@ func NewUsage() *Usage {
 	return &Usage{Properties: make(map[string]*Usage)}
 }
 
-// Empty reports whether a node contains no usage evidence.
+// Empty reports whether a node contains no usage evidence. Sources are an
+// annotation, so a node that carries only sources stays empty.
 func (u *Usage) Empty() bool {
 	return u == nil || (!u.Read && !u.Exact && !u.AllowUnknown && !u.Open && !u.Serialized && !u.Iterated && len(u.Properties) == 0 && u.Additional == nil && u.Items == nil && u.Elements == nil)
+}
+
+// AddSource records one chart file as a place that uses this value. Names stay
+// sorted and unique so that generated output is deterministic.
+func (u *Usage) AddSource(name string) {
+	if u == nil || name == "" {
+		return
+	}
+	index, found := slices.BinarySearch(u.Sources, name)
+	if found {
+		return
+	}
+	u.Sources = slices.Insert(u.Sources, index, name)
 }
 
 // Merge adds all evidence from other to u. Merge is monotonic: it never clears
@@ -115,6 +134,9 @@ func (u *Usage) Merge(other *Usage) {
 	u.Open = u.Open || other.Open
 	u.Serialized = u.Serialized || other.Serialized
 	u.Iterated = u.Iterated || other.Iterated
+	for _, name := range other.Sources {
+		u.AddSource(name)
+	}
 	if u.Properties == nil {
 		u.Properties = make(map[string]*Usage)
 	}

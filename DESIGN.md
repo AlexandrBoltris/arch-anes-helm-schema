@@ -474,6 +474,8 @@ Each usage node records these facts:
 - Which container kinds template operations require.
 - Which template locations provide the evidence.
 
+The last fact is an annotation. Schema rules never depend on it, and the formal conformance protocol omits it.
+
 A parent can exist only to contain a used child. Such a structural parent is not independently configurable.
 
 The analyzer merges evidence from all reachable template paths. The merge never removes evidence.
@@ -585,6 +587,26 @@ The fixed constant uses the effective default after Helm applies dependency and 
 ### Descriptions and defaults
 
 The generator copies plain YAML comments into `description` for configurable values. It ignores special annotation syntax and commented-out YAML.
+
+The generator also names the chart files that use a value. It appends a sorted, unique file list. One file stays on the label line and several files become a list:
+
+```json
+{
+  "replicas": {
+    "type": "integer",
+    "description": "Number of replicas.\n\nUsed in: example/templates/deployment.yaml",
+    "default": 2
+  }
+}
+```
+
+A comment and a file list are separated by one blank line. A value without a comment receives only the file list.
+
+The list names the file where template evaluation consumes the value. A value read inside a named template names the file that defines that template. A value that a helper only passes through to its caller names the file that renders the result. A value that Helm reads from chart metadata, such as a dependency condition, names that `Chart.yaml`.
+
+The list omits line numbers on purpose. A line number would rewrite the schema after an unrelated edit in the same file, and stable output is a requirement.
+
+The file list is an annotation. It documents a value and never changes which values the schema accepts.
 
 The generator adds `default` only to configurable values. A structural parent does not receive an unrelated default annotation.
 

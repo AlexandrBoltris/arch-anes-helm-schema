@@ -211,6 +211,19 @@ func (a *analyzer) addDiagnostic(node parse.Node, message string) {
 	a.diagnostics = append(a.diagnostics, diagnostic)
 }
 
+// currentSource names the chart file being evaluated. A named template reports
+// the file that defines it rather than its template name, because a chart user
+// reads the file to understand how a value is used.
+func (a *analyzer) currentSource() string {
+	if a.currentTree == nil {
+		return ""
+	}
+	if a.currentTree.ParseName != "" {
+		return a.currentTree.ParseName
+	}
+	return a.currentTree.Name
+}
+
 // sortedDiagnostics returns stable diagnostics and removes exact duplicates.
 func sortedDiagnostics(diagnostics []Diagnostic) []Diagnostic {
 	result := slices.Clone(diagnostics)

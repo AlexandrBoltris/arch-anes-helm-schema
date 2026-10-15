@@ -1013,3 +1013,51 @@ func jsonEqual(left, right any) bool {
 	rightJSON, rightErr := json.Marshal(right)
 	return leftErr == nil && rightErr == nil && string(leftJSON) == string(rightJSON)
 }
+
+func TestGenerateDocumentsUsageSources(t *testing.T) {
+	t.Parallel()
+
+	got, err := Generate(map[string]any{
+		"documented": "value",
+		"bare":       "value",
+	}, map[string]string{
+		"/documented": "Comment from values.yaml.",
+	}, &analyze.Usage{Properties: map[string]*analyze.Usage{
+		"documented": {Read: true, Sources: []string{"example/templates/configmap.yaml"}},
+		"bare": {Read: true, Sources: []string{
+			"example/templates/_helpers.tpl",
+			"example/templates/service.yaml",
+		}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	root := decodeSchema(t, got)
+	documented := property(t, root, "documented")["description"]
+	if documented != "Comment from values.yaml.\n\nUsed in: example/templates/configmap.yaml" {
+		t.Fatalf("documented description = %q", documented)
+	}
+	bare := property(t, root, "bare")["description"]
+	if bare != "Used in:\n- example/templates/_helpers.tpl\n- example/templates/service.yaml" {
+		t.Fatalf("bare description = %q", bare)
+	}
+}
+
+func TestGenerateOmitsUsageSectionWithoutSources(t *testing.T) {
+	t.Parallel()
+
+	got, err := Generate(map[string]any{"value": "text"}, map[string]string{
+		"/value": "Only a comment.",
+	}, &analyze.Usage{Properties: map[string]*analyze.Usage{
+		"value": {Read: true},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	description := property(t, decodeSchema(t, got), "value")["description"]
+	if description != "Only a comment." {
+		t.Fatalf("description = %q", description)
+	}
+}

@@ -56,7 +56,7 @@ func Generate(defaults map[string]any, descriptions map[string]string, usage *an
 	root := &document{
 		Schema:      draft7,
 		Type:        "object",
-		Description: descriptions[""],
+		Description: describe(descriptions[""], usage),
 	}
 	b := builder{
 		descriptions:         descriptions,
@@ -120,6 +120,33 @@ func encode(root *document) ([]byte, error) {
 		return nil, fmt.Errorf("encode schema: %w", err)
 	}
 	return output.Bytes(), nil
+}
+
+// describe combines the values.yaml comment for a value with the chart files
+// that use it. The file list documents a value for a chart user. It is an
+// annotation and never changes which values the schema accepts.
+func describe(comment string, usage *analyze.Usage) string {
+	if usage == nil {
+		return comment
+	}
+	sections := make([]string, 0, 2)
+	if comment != "" {
+		sections = append(sections, comment)
+	}
+	if len(usage.Sources) > 0 {
+		sections = append(sections, labelledNames("Used in", usage.Sources))
+	}
+	return strings.Join(sections, "\n\n")
+}
+
+// labelledNames renders one named group. A single name stays on the label line.
+// Several names become a list, which stays readable when a value reaches many
+// files.
+func labelledNames(label string, names []string) string {
+	if len(names) == 1 {
+		return label + ": " + names[0]
+	}
+	return label + ":\n- " + strings.Join(names, "\n- ")
 }
 
 // permitNullAtPath adds null to one fixed property path. Object alternatives
@@ -217,7 +244,7 @@ func (b *builder) buildValue(value any, exists bool, usage *analyze.Usage, point
 		usage = &analyze.Usage{}
 	}
 
-	result := &document{Description: b.descriptions[pointer]}
+	result := &document{Description: describe(b.descriptions[pointer], usage)}
 	open := inheritedOpen || usage.Open
 	used := inheritedUsed || open
 	wantsObject := len(usage.Properties) > 0 || usage.Additional != nil
