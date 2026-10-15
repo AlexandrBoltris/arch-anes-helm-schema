@@ -106,6 +106,78 @@ Generation validates each schema against the chart's effective defaults. Run
 `helm lint` after generation to validate an override or the chart's complete
 values tree.
 
+## Read a generated description
+
+Each `description` keeps the `values.yaml` comment and adds the chart files that
+use the value. This example uses the chart that `helm create` makes in Helm
+4.2.4:
+
+```sh
+helm create my-app
+helm schema ./my-app/
+```
+
+The `service.port` value reaches six files, so they become a list:
+
+```sh
+jq -r '.properties.service.properties.port.description' ./my-app/values.schema.json
+```
+
+```text
+This sets the ports more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#field-spec-ports
+
+Used in:
+- my-app/templates/NOTES.txt
+- my-app/templates/deployment.yaml
+- my-app/templates/httproute.yaml
+- my-app/templates/ingress.yaml
+- my-app/templates/service.yaml
+- my-app/templates/tests/test-connection.yaml
+```
+
+Each path starts with the chart name from `Chart.yaml`.
+
+A value that one file uses stays on the label line:
+
+```sh
+jq -r '.properties.image.properties.tag.description' ./my-app/values.schema.json
+```
+
+```text
+Overrides the image tag whose default is the chart appVersion.
+
+Used in: my-app/templates/deployment.yaml
+```
+
+A value that a named template reads names the file that defines the template:
+
+```sh
+jq -r '.properties.serviceAccount.properties.create.description' ./my-app/values.schema.json
+```
+
+```text
+Specifies whether a service account should be created.
+
+Used in:
+- my-app/templates/_helpers.tpl
+- my-app/templates/serviceaccount.yaml
+```
+
+An editor that uses
+[yaml-language-server](https://github.com/redhat-developer/yaml-language-server)
+shows this text when you hover over a key. Add a modeline comment to a values
+file to select the schema. A relative path is resolved from the values file:
+
+```yaml
+# yaml-language-server: $schema=./my-app/values.schema.json
+service:
+  port: 8080
+```
+
+The chart's own `values.yaml` can use the same line with
+`$schema=values.schema.json`. The generator does not copy this comment into a
+description.
+
 ## Use the Helm 4 plugin
 
 Prepare and install a local development plugin:
