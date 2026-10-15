@@ -586,7 +586,17 @@ The fixed constant uses the effective default after Helm applies dependency and 
 
 ### Descriptions and defaults
 
-The generator copies plain YAML comments into `description` for configurable values. It ignores special annotation syntax and commented-out YAML.
+The generator copies plain YAML comments into `description` for configurable values. It ignores helm-docs annotation syntax and directives addressed to an editor or another tool, such as `# yaml-language-server:`. A schema generator must ignore that one in particular, because it names the file that this command writes.
+
+A comment documents the value it is indented with. A YAML decoder attaches every comment above a node to that node, so a note written inside an empty map would otherwise document the next key:
+
+```yaml
+labels:
+  # Used to add custom labels.
+annotations:
+```
+
+The decoder removes the indentation of a comment, so the generator reads it from the original file. A line indented more deeply than the following key documents the value above it instead.
 
 The generator also names the chart files that use a value. It appends a sorted, unique file list. One file stays on the label line and several files become a list:
 

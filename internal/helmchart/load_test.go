@@ -412,3 +412,105 @@ func usageProperty(usage *analyze.Usage, path ...string) *analyze.Usage {
 	}
 	return usage
 }
+
+// loadDescriptionsForValues loads a single-chart values.yaml and returns its
+// descriptions by JSON pointer.
+func loadDescriptionsForValues(t *testing.T, values string) map[string]string {
+	t.Helper()
+	chartDirectory := t.TempDir()
+	writeChartFile(t, chartDirectory, "Chart.yaml", "apiVersion: v2\nname: comments\nversion: 1.0.0\n")
+	writeChartFile(t, chartDirectory, "values.yaml", values)
+	writeChartFile(t, chartDirectory, "templates/configmap.yaml",
+		"apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: comments\n")
+
+	data, err := Load(chartDirectory)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	scope, err := data.ForScope(nil)
+	if err != nil {
+		t.Fatalf("ForScope() error = %v", err)
+	}
+	return scope.Descriptions
+}
+
+func TestDescriptionsDropToolDirectives(t *testing.T) {
+	descriptions := loadDescriptionsForValues(t, `# yaml-language-server: $schema=./values.schema.json
+
+# Number of replicas.
+replicas: 1
+`)
+
+	if root, found := descriptions[""]; found {
+		t.Fatalf("a tool directive became the root description: %q", root)
+	}
+	if descriptions["/replicas"] != "Number of replicas." {
+		t.Fatalf("replicas description = %q", descriptions["/replicas"])
+	}
+}
+
+func TestDescriptionsKeepToolDirectiveNeighbours(t *testing.T) {
+	descriptions := loadDescriptionsForValues(t, `# yaml-language-server: $schema=./values.schema.json
+# Default values for the chart.
+
+replicas: 1
+`)
+
+	if descriptions[""] != "Default values for the chart." {
+		t.Fatalf("root description = %q", descriptions[""])
+	}
+}
+
+func TestIndentedCommentDocumentsTheValueAboveIt(t *testing.T) {
+	// A note written inside an empty map lands on the next key unless the
+	// original indentation separates the two.
+	descriptions := loadDescriptionsForValues(t, `ingress:
+  labels:
+    # Used to add custom labels.
+  annotations:
+    # example.com/owner: team
+  tls: []
+`)
+
+	if descriptions["/ingress/labels"] != "Used to add custom labels." {
+		t.Fatalf("labels description = %q", descriptions["/ingress/labels"])
+	}
+	if descriptions["/ingress/annotations"] != "example.com/owner: team" {
+		t.Fatalf("annotations description = %q", descriptions["/ingress/annotations"])
+	}
+	if description, found := descriptions["/ingress/tls"]; found {
+		t.Fatalf("tls took a comment from another value: %q", description)
+	}
+}
+
+func TestAlignedCommentDocumentsItsOwnKey(t *testing.T) {
+	descriptions := loadDescriptionsForValues(t, `ingress:
+  # Labels for the ingress.
+  labels: {}
+  # Annotations for the ingress.
+  annotations: {}
+`)
+
+	if descriptions["/ingress/labels"] != "Labels for the ingress." {
+		t.Fatalf("labels description = %q", descriptions["/ingress/labels"])
+	}
+	if descriptions["/ingress/annotations"] != "Annotations for the ingress." {
+		t.Fatalf("annotations description = %q", descriptions["/ingress/annotations"])
+	}
+}
+
+func TestIndentedCommentJoinsAnExistingDescription(t *testing.T) {
+	descriptions := loadDescriptionsForValues(t, `# Annotations for the ingress.
+annotations:
+  # example.com/owner: team
+replicas: 1
+`)
+
+	want := "Annotations for the ingress.\nexample.com/owner: team"
+	if descriptions["/annotations"] != want {
+		t.Fatalf("annotations description = %q, want %q", descriptions["/annotations"], want)
+	}
+	if description, found := descriptions["/replicas"]; found {
+		t.Fatalf("replicas took a comment from another value: %q", description)
+	}
+}
