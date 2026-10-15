@@ -4,7 +4,6 @@ package schema
 // descriptions, stable output, and invalid defaults.
 
 import (
-	"bytes"
 	"encoding/json"
 	"math"
 	"strings"
@@ -42,7 +41,7 @@ func TestGenerateUsedFixedAndMissingValues(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wantIndented := `{
+	want := `{
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
   "properties": {
@@ -73,13 +72,8 @@ func TestGenerateUsedFixedAndMissingValues(t *testing.T) {
   "additionalProperties": false
 }
 `
-	var want bytes.Buffer
-	if err := json.Compact(&want, []byte(wantIndented)); err != nil {
-		t.Fatal(err)
-	}
-	want.WriteByte('\n')
-	if !bytes.Equal(got, want.Bytes()) {
-		t.Fatalf("unexpected schema:\n%s\nwant:\n%s", got, want.Bytes())
+	if string(got) != want {
+		t.Fatalf("unexpected schema:\n%s\nwant:\n%s", got, want)
 	}
 
 	again, err := Generate(defaults, map[string]string{

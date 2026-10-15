@@ -25,7 +25,7 @@ The generator:
 - Treats rollout checksums as exact use instead of permission for unknown fields.
 - Ignores commented-out keys because comments do not prove runtime use.
 - Names the chart files that use each value in its `description`.
-- Writes stable, compact Draft 7 JSON to stay within Helm's chart-file limit.
+- Writes stable, indented Draft 7 JSON and rejects a schema above Helm's chart-file limit.
 - Replaces existing schemas in the selected chart and its unpacked dependencies after successful generation.
 - Replaces an oversized unpacked schema even when Helm refuses to load that old file.
 

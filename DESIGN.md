@@ -23,7 +23,7 @@ The first version has these goals:
 - Replace schemas in unpacked dependency charts so that the complete chart passes schema validation.
 - Target Helm 4 and its Go SDK.
 - Install the compiled program as a Helm 4 CLI plugin.
-- Produce stable, compact JSON output that stays within Helm's chart-file limit.
+- Produce stable, indented JSON output that stays within Helm's chart-file limit.
 - Produce a schema that works with `helm lint` for the supported chart behavior.
 - Parse templates without rendering or executing them.
 
@@ -682,7 +682,9 @@ The analyzer sorts diagnostics by file and location. Tests and library callers c
 
 ## Deterministic and safe output
 
-The JSON encoder uses compact output and one final newline. Object keys have a stable lexical order. Compact output prevents whitespace from exceeding Helm's chart-file limit.
+The JSON encoder uses two-space indentation and one final newline. Object keys have a stable lexical order. Indented output keeps a generated schema readable in review and in an editor that shows schema text.
+
+Indentation is safe for Helm's chart-file limit of 5 MiB. The command checks the encoded size of each schema after alias schemas have been combined and fails before writing an oversized file.
 
 Repeated generation from unchanged chart files produces identical bytes. Stable output prevents unrelated version-control changes.
 

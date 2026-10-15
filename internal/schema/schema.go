@@ -110,12 +110,15 @@ func AllowsUnknownRootProperties(defaults map[string]any, usage *analyze.Usage) 
 	return allowsUnnamedProperties(defaults, usage, usage.Open)
 }
 
-// encode writes one compact schema with a final newline. Compact output avoids
-// Helm's chart-file size limit for schemas with many nested properties.
+// encode writes one indented schema with a final newline. Indented output
+// keeps a generated schema readable in review and in an editor that shows
+// schema text. The command checks the result against Helm's chart-file size
+// limit after alias schemas have been combined.
 func encode(root *document) ([]byte, error) {
 	var output bytes.Buffer
 	encoder := json.NewEncoder(&output)
 	encoder.SetEscapeHTML(false)
+	encoder.SetIndent("", "  ")
 	if err := encoder.Encode(root); err != nil {
 		return nil, fmt.Errorf("encode schema: %w", err)
 	}
