@@ -1,5 +1,20 @@
 # helm-schema
 
+This repository is a fork of [arch-anes/helm-schema](https://github.com/arch-anes/helm-schema),
+maintained at [AlexandrBoltris/arch-anes-helm-schema](https://github.com/AlexandrBoltris/arch-anes-helm-schema).
+It extends the upstream generator with:
+
+- Read-only `--check` mode for CI schema-freshness checks.
+- werf and Nelm deployment profiles, including runtime service values and werf `.helm/` discovery.
+- Value descriptions that retain YAML comments and name the template files using each value.
+- Indented JSON output.
+- Multi-architecture Docker images for Linux amd64/arm64, built by the release workflow.
+
+Release assets and images for this fork use its own repository namespace; see the
+installation sections below. The feature list describes the current source, not
+every published revision; the CI examples pin the upcoming release and note when
+it must be published.
+
 `helm-schema` generates `values.schema.json` from values that Helm templates use.
 
 It reads `values.yaml` for defaults, types, descriptions, and default text passed to `tpl`. A declaration alone does not make a value configurable.
@@ -99,6 +114,8 @@ bin/helm-schema --check ./path/to/chart
 The command exits with status 0 when every schema file in the chart tree matches
 the generated output. It exits with status 1 and lists each file that differs or is missing.
 A generation error also exits with status 1. Put `--check` before the chart path.
+See [Check committed schemas in CI](#check-committed-schemas-in-ci) for complete
+GitHub Actions and GitLab CI jobs for a chart in `.helm/`.
 
 Generation uses only local chart files. It does not download dependencies or contact a Kubernetes cluster.
 
@@ -134,6 +151,127 @@ generic function rules. Charts must contain Chart.yaml and use Helm-compatible
 dependency metadata; werf-specific export-values metadata is not interpreted.
 Use the standalone binary; the packaged plugin targets Helm 4, not the werf/Nelm
 plugin interfaces.
+
+## Check committed schemas in CI
+
+Add a separate job to your chart repository to check `.helm/values.schema.json`
+on every push and pull request. Check the committed files directly: do not
+generate schemas before `--check`, because that would hide stale or missing files.
+No Go toolchain, Kubernetes cluster, kubeconfig, or Helm/werf/Nelm installation
+is needed. Both examples use this fork’s container image.
+
+### Image version
+
+The examples target the upcoming **0.2.0** release. They become runnable after
+`ghcr.io/alexandrboltris/arch-anes-helm-schema:0.2.0` has been published;
+the `0.1.0` image does not support `--check` or `--engine`. For testing before
+release, build the same image locally:
+
+```sh
+docker build --build-arg VERSION=0.2.0 \
+  -t ghcr.io/alexandrboltris/arch-anes-helm-schema:0.2.0 .
+```
+
+Run that build from this generator’s source checkout, not your chart repository.
+A local build is available only to that Docker daemon; hosted CI runners need
+the published image. Pin the same image version (or immutable image digest)
+and engine locally and in CI: upgrades can change generated output. The GHCR
+package must be public for these examples to work without registry credentials.
+
+### GitHub Actions
+
+Create `.github/workflows/chart-schema.yml` in the repository containing `.helm/`:
+
+```yaml
+name: Chart schema
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  chart-schema:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check committed schemas
+        run: |
+          docker run --rm \
+            --mount "type=bind,source=${GITHUB_WORKSPACE},target=/chart,readonly" \
+            ghcr.io/alexandrboltris/arch-anes-helm-schema:0.2.0 \
+            --check .helm/
+```
+
+### GitLab CI
+
+Add this job to `.gitlab-ci.yml`. GitLab checks out your chart repository before
+running the script. It uses the default `test` stage; if you define a custom
+`stages` list without `test`, add that stage or choose an existing stage. This
+example assumes a Linux Docker runner; it does not need Docker-in-Docker.
+Existing pipeline-level `workflow: rules` must permit the desired pipelines.
+
+```yaml
+chart-schema:
+  stage: test
+  image:
+    name: ghcr.io/alexandrboltris/arch-anes-helm-schema:0.2.0
+    entrypoint: [""]
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS && $CI_PIPELINE_SOURCE == "push"'
+      when: never
+    - if: '$CI_COMMIT_BRANCH'
+    - if: '$CI_COMMIT_TAG'
+  script:
+    - helm-schema --check .helm/
+```
+
+The empty GitLab entrypoint lets the runner execute its script instead of passing
+it to `helm-schema`. GitLab runs the script in the checked-out repository, not
+the image’s default `/chart` working directory.
+
+If the chart has dependencies, make their files available under `.helm/charts/`
+before the check, for example by restoring your existing dependency artifact.
+The generator does not download dependencies and the image does not include
+Helm; prepare dependencies in a separate job if needed. Missing dependencies
+fail the job. Commit the root schema and schemas in unpacked dependency charts
+you intend to check.
+
+A current schema tree exits with status 0. Stale or missing schemas exit with
+status 1 and list the affected files; generation errors also fail the job. The
+check does not rewrite schema files. CI does not update or commit them. Configure
+the job as a required check in your repository settings if it should block merging.
+
+### Fixing a failed check locally
+
+From your chart repository’s root, regenerate with the same image and engine,
+then review and commit the resulting schema files:
+
+```sh
+docker run --rm --user "$(id -u):$(id -g)" \
+  --mount "type=bind,source=$(pwd),target=/chart" \
+  ghcr.io/alexandrboltris/arch-anes-helm-schema:0.2.0 .helm/
+```
+
+Generation needs a writable mount; the GitHub check uses a read-only mount.
+
+### werf and Nelm profiles
+
+The 0.2.0 image includes both profiles. In the GitHub example, replace the final
+`--check .helm/` arguments with `--engine werf --check .helm/` or
+`--engine nelm --check .helm/`. In the GitLab example, use the matching command:
+
+```sh
+helm-schema --engine werf --check .helm/
+# Or, for Nelm:
+helm-schema --engine nelm --check .helm/
+```
+
+Use the same `--engine` locally, omitting only `--check` when regenerating.
+Flags must precede the chart path.
 
 ## Read a generated description
 
@@ -220,7 +358,7 @@ helm schema ./path/to/chart
 Installing directly from the Git repository also works when Go is installed:
 
 ```sh
-helm plugin install https://github.com/arch-anes/helm-schema.git --verify=false
+helm plugin install https://github.com/AlexandrBoltris/arch-anes-helm-schema.git --verify=false
 ```
 
 The install hook builds the native executable in the plugin directory. A
@@ -241,11 +379,13 @@ amd64), Linux (amd64 and arm64), and Windows (amd64), and a `checksums.txt`
 file:
 
 ```sh
-version=0.1.0
-curl -LO "https://github.com/arch-anes/helm-schema/releases/download/v$version/helm-schema_${version}_darwin_arm64.tar.gz"
+version=0.2.0
+curl -LO "https://github.com/AlexandrBoltris/arch-anes-helm-schema/releases/download/v$version/helm-schema_${version}_darwin_arm64.tar.gz"
 tar -xzf "helm-schema_${version}_darwin_arm64.tar.gz"
 "helm-schema_${version}_darwin_arm64/helm-schema" --version
 ```
+
+The 0.2.0 examples require the upcoming release to be published first.
 
 The macOS binaries are not signed or notarized. If you download an archive with
 a browser, remove the quarantine attribute before you run the binary:
@@ -257,12 +397,15 @@ xattr -d com.apple.quarantine helm-schema
 ## Use the container image
 
 Each `v*` tag also publishes a multi-architecture (`linux/amd64`,
-`linux/arm64`) image to `ghcr.io/arch-anes/helm-schema`. Mount the chart at
+`linux/arm64`) image to `ghcr.io/alexandrboltris/arch-anes-helm-schema`. Mount the chart at
 `/chart` and run as your own user so that the generated schemas belong to you:
 
 ```sh
-docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/chart" ghcr.io/arch-anes/helm-schema:0.1.0
+docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/chart" ghcr.io/alexandrboltris/arch-anes-helm-schema:0.2.0
 ```
+
+The upcoming 0.2.0 image includes `--check` and `--engine`; it must be
+published before the examples can pull it. See the CI section for a local build.
 
 On macOS, Docker Desktop, OrbStack, and Colima run the `linux/arm64` image. The
 image includes `/bin/sh`, so you can also use it as a CI job image and run

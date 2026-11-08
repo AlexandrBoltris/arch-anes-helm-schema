@@ -94,9 +94,9 @@ The repository contains this Helm 4 plugin contract:
 apiVersion: v1
 type: cli/v1
 name: schema
-version: 0.1.1
+version: 0.2.0
 runtime: subprocess
-sourceURL: https://github.com/arch-anes/helm-schema
+sourceURL: https://github.com/AlexandrBoltris/arch-anes-helm-schema
 config:
   usage: schema [--check] [CHART]
   shortHelp: Generate values.schema.json from Helm template usage
