@@ -4,7 +4,7 @@
 
 It reads `values.yaml` for defaults, types, descriptions, and default text passed to `tpl`. A declaration alone does not make a value configurable.
 
-This project targets Helm 4 only. The current Go module uses Helm 4.2.4.
+Chart loading and schema validation use Helm 4.2.4. Deployment profiles also support werf and Nelm service values.
 
 ## Current behavior
 
@@ -105,6 +105,35 @@ Generation uses only local chart files. It does not download dependencies or con
 Generation validates each schema against the chart's effective defaults. Run
 `helm lint` after generation to validate an override or the chart's complete
 values tree.
+
+## Use with werf or Nelm
+
+Select a deployment profile before the chart path:
+
+```sh
+bin/helm-schema --engine werf ./path/to/project
+bin/helm-schema --engine nelm ./path/to/chart
+bin/helm-schema --engine werf --check ./path/to/project
+```
+
+The werf profile accepts either a chart directory or a project containing
+`.helm/Chart.yaml`. A chart in the supplied directory takes precedence.
+For a custom werf chart directory, pass that directory explicitly.
+
+Both profiles permit runtime service values under `werf`, `global.werf`,
+`global.env` (the legacy environment value injected by werf), and
+`dockerconfigjson` in the root chart and its unpacked dependencies. These
+namespaces are engine-owned and intentionally unconstrained, including when
+values.yaml contains placeholders. Other values retain the same strict rules
+as the default `--engine helm` profile; the profile does not open the values root.
+
+Generation remains offline: it does not run werf/Nelm, build images, decrypt
+secret-values.yaml, or load environment-specific overrides. Extra template
+functions are parsed without execution; their value arguments use the analyzer’s
+generic function rules. Charts must contain Chart.yaml and use Helm-compatible
+dependency metadata; werf-specific export-values metadata is not interpreted.
+Use the standalone binary; the packaged plugin targets Helm 4, not the werf/Nelm
+plugin interfaces.
 
 ## Read a generated description
 

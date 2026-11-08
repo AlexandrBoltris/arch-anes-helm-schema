@@ -46,8 +46,15 @@ The first version does not provide these features:
 The command accepts zero or one positional argument:
 
 ```text
-helm-schema [--check] [CHART]
+helm-schema [--engine helm|werf|nelm] [--check] [CHART]
 ```
+
+The default `helm` profile follows template and metadata usage. The `werf` and
+`nelm` profiles additionally reserve the runtime service values `werf`,
+`global.werf`, `global.env`, and `dockerconfigjson` in every chart scope. These
+paths remain unconstrained even when defaults declare placeholders. In particular,
+werf 2 injects the legacy `global.env` value even when templates do not use it.
+Other keys, including other children of `global`, retain the default policy.
 
 `CHART` defaults to the current directory. The command writes `values.schema.json` in the chart directory.
 

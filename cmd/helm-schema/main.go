@@ -42,7 +42,10 @@ func run(args []string, stdout, stderr io.Writer) error {
 	if done {
 		return nil
 	}
-	chartPath := options.chartPath
+	chartPath, err := deploymentChartPath(options.chartPath, options.engine)
+	if err != nil {
+		return err
+	}
 
 	chart, err := helmchart.Load(chartPath)
 	if err != nil {
@@ -55,6 +58,9 @@ func run(args []string, stdout, stderr io.Writer) error {
 	usage.Merge(chart.MetadataUsage)
 	if err := analyze.ApplyValueFlows(usage, chart.ValueFlows); err != nil {
 		return fmt.Errorf("analyze Helm value flows: %w", err)
+	}
+	if options.engine != "helm" {
+		allowServiceValues(usage, chart.Scopes)
 	}
 	generated := make([]generatedSchema, 0, len(chart.Scopes))
 	for _, scope := range chart.Scopes {
@@ -161,6 +167,7 @@ func checkGeneratedSchemaSize(directory string, content []byte) error {
 // commandOptions contains the parsed chart path and generation mode.
 type commandOptions struct {
 	chartPath string
+	engine    string
 	check     bool
 }
 
@@ -171,6 +178,7 @@ func parseArguments(args []string, stdout io.Writer) (options commandOptions, do
 	flags := flag.NewFlagSet("helm-schema", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	showVersion := flags.Bool("version", false, "show the helm-schema version")
+	engine := flags.String("engine", "helm", "deployment engine: helm, werf, or nelm")
 	check := flags.Bool("check", false, "report schema files that differ from generated output without writing them")
 	flags.Usage = func() { writeHelp(stdout) }
 
@@ -187,7 +195,10 @@ func parseArguments(args []string, stdout io.Writer) (options commandOptions, do
 	if flags.NArg() > 1 {
 		return commandOptions{}, false, errors.New("usage: helm-schema [--check] [CHART]")
 	}
-	options = commandOptions{chartPath: ".", check: *check}
+	if *engine != "helm" && *engine != "werf" && *engine != "nelm" {
+		return commandOptions{}, false, fmt.Errorf("unknown deployment engine %q: expected helm, werf, or nelm", *engine)
+	}
+	options = commandOptions{chartPath: ".", check: *check, engine: *engine}
 	if flags.NArg() == 1 {
 		options.chartPath = flags.Arg(0)
 	}
@@ -254,6 +265,7 @@ func writeHelp(w io.Writer) {
 	fmt.Fprintln(w, "  helm schema [--check] [CHART]")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Options:")
+	fmt.Fprintln(w, "  --engine   Deployment engine: helm (default), werf, or nelm")
 	fmt.Fprintln(w, "  --check    Exit with status 1 if a schema file differs from generated output; write nothing")
 }
 
