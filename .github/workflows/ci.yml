@@ -73,7 +73,7 @@ jobs:
           fixture=$(mktemp -d)
           trap 'rm -rf "$fixture"' EXIT
           cp -R testdata/basic "$fixture/.helm"
-          docker run --rm -v "$fixture:/chart" "$image" --engine werf .helm/
+          docker run --rm --user "$(id -u):$(id -g)" -v "$fixture:/chart" "$image" --engine werf .helm/
           docker run --rm -v "$fixture:/chart:ro" "$image" --engine werf --check .helm/
           docker run --rm -v "$fixture:/chart:ro" --entrypoint /bin/sh "$image" -c 'helm-schema --engine nelm --check .helm/'
           printf '{}\n' > "$fixture/.helm/values.schema.json"
