@@ -17,8 +17,9 @@ const (
 	iterateValue
 )
 
-// record adds one observation at a referenced value path.
-func (u *Usage) record(reference reference, mode observation) {
+// record adds one observation at a referenced value path. Each source names a
+// chart file that produced the observation.
+func (u *Usage) record(reference reference, mode observation, sources ...string) {
 	current := u
 	for _, part := range reference.segments {
 		switch part.kind {
@@ -48,6 +49,9 @@ func (u *Usage) record(reference reference, mode observation) {
 			}
 			current = current.Elements
 		}
+	}
+	for _, source := range sources {
+		current.AddSource(source)
 	}
 	switch mode {
 	case readValue:
@@ -79,7 +83,7 @@ func (a *analyzer) observe(input value, mode observation) {
 			if mode == subtreeContextValue && !inputAtom.reference.belowRoot() {
 				continue
 			}
-			a.usage.record(inputAtom.reference, mode)
+			a.usage.record(inputAtom.reference, mode, a.currentSource())
 		case objectAtom:
 			if observesDescendants(mode) {
 				for _, field := range inputAtom.fields {

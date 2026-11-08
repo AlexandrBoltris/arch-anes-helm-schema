@@ -755,3 +755,80 @@ func writeTestFile(t *testing.T, directory, name, content string) {
 		t.Fatal(err)
 	}
 }
+
+func TestRunDocumentsUsageSources(t *testing.T) {
+	t.Parallel()
+
+	chartDirectory := t.TempDir()
+	writeTestFile(t, chartDirectory, "Chart.yaml", "apiVersion: v2\nname: sources\nversion: 1.0.0\n")
+	writeTestFile(t, chartDirectory, "values.yaml", "# Replica count.\nreplicas: 1\nname: demo\n")
+	writeTestFile(t, chartDirectory, "templates/_helpers.tpl",
+		`{{- define "sources.name" -}}{{ .Values.name | lower }}{{- end -}}`)
+	writeTestFile(t, chartDirectory, "templates/configmap.yaml", `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "sources.name" . }}
+data:
+  replicas: {{ .Values.replicas | quote }}
+`)
+
+	if err := run([]string{chartDirectory}, &bytes.Buffer{}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(chartDirectory, "values.schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var root map[string]any
+	if err := json.Unmarshal(content, &root); err != nil {
+		t.Fatal(err)
+	}
+	properties := schemaProperties(t, root)
+
+	replicas := properties["replicas"].(map[string]any)["description"]
+	want := "Replica count.\n\nUsed in: sources/templates/configmap.yaml"
+	if replicas != want {
+		t.Fatalf("replicas description = %q", replicas)
+	}
+	name := properties["name"].(map[string]any)["description"]
+	if name != "Used in: sources/templates/_helpers.tpl" {
+		t.Fatalf("name description = %q", name)
+	}
+}
+
+func TestRunDocumentsDependencyConditionSource(t *testing.T) {
+	t.Parallel()
+
+	chartDirectory := t.TempDir()
+	writeTestFile(t, chartDirectory, "Chart.yaml", `apiVersion: v2
+name: parent
+version: 1.0.0
+dependencies:
+  - name: child
+    version: 1.0.0
+    condition: child.enabled
+`)
+	writeTestFile(t, chartDirectory, "values.yaml", "child:\n  enabled: false\n")
+	writeTestFile(t, chartDirectory, "templates/configmap.yaml", "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: parent\n")
+	writeTestFile(t, chartDirectory, "charts/child/Chart.yaml", "apiVersion: v2\nname: child\nversion: 1.0.0\n")
+	writeTestFile(t, chartDirectory, "charts/child/values.yaml", "enabled: false\n")
+
+	if err := run([]string{chartDirectory}, &bytes.Buffer{}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(chartDirectory, "values.schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var root map[string]any
+	if err := json.Unmarshal(content, &root); err != nil {
+		t.Fatal(err)
+	}
+	child := schemaProperties(t, root)["child"].(map[string]any)
+	enabled := schemaProperties(t, child)["enabled"].(map[string]any)["description"]
+	if enabled != "Used in: parent/Chart.yaml" {
+		t.Fatalf("condition description = %q", enabled)
+	}
+}

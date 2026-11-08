@@ -1149,3 +1149,32 @@ func requireProperty(t *testing.T, usage *Usage, name string) *Usage {
 	}
 	return property
 }
+
+func TestUsageRecordsSourceTemplates(t *testing.T) {
+	usage, diagnostics, err := Templates([]Template{
+		{
+			Name:    "example/templates/configmap.yaml",
+			Entry:   true,
+			Content: []byte(`{{ .Values.direct | quote }}{{ include "example.helper" . }}`),
+		},
+		{
+			Name:    "example/templates/_helpers.tpl",
+			Content: []byte(`{{- define "example.helper" -}}{{ .Values.helped | lower }}{{- end -}}`),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(diagnostics) != 0 {
+		t.Fatalf("unexpected diagnostics: %v", diagnostics)
+	}
+
+	direct := usage.AtPath("direct")
+	if len(direct.Sources) != 1 || direct.Sources[0] != "example/templates/configmap.yaml" {
+		t.Fatalf("direct sources = %#v", direct.Sources)
+	}
+	helped := usage.AtPath("helped")
+	if len(helped.Sources) != 1 || helped.Sources[0] != "example/templates/_helpers.tpl" {
+		t.Fatalf("helper sources = %#v", helped.Sources)
+	}
+}

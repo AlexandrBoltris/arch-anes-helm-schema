@@ -23,7 +23,7 @@ The first version has these goals:
 - Replace schemas in unpacked dependency charts so that the complete chart passes schema validation.
 - Target Helm 4 and its Go SDK.
 - Install the compiled program as a Helm 4 CLI plugin.
-- Produce stable, compact JSON output that stays within Helm's chart-file limit.
+- Produce stable, indented JSON output that stays within Helm's chart-file limit.
 - Produce a schema that works with `helm lint` for the supported chart behavior.
 - Parse templates without rendering or executing them.
 
@@ -46,8 +46,15 @@ The first version does not provide these features:
 The command accepts zero or one positional argument:
 
 ```text
-helm-schema [--check] [CHART]
+helm-schema [--engine helm|werf|nelm] [--check] [CHART]
 ```
+
+The default `helm` profile follows template and metadata usage. The `werf` and
+`nelm` profiles additionally reserve the runtime service values `werf`,
+`global.werf`, `global.env`, and `dockerconfigjson` in every chart scope. These
+paths remain unconstrained even when defaults declare placeholders. In particular,
+werf 2 injects the legacy `global.env` value even when templates do not use it.
+Other keys, including other children of `global`, retain the default policy.
 
 `CHART` defaults to the current directory. The command writes `values.schema.json` in the chart directory.
 
@@ -87,9 +94,9 @@ The repository contains this Helm 4 plugin contract:
 apiVersion: v1
 type: cli/v1
 name: schema
-version: 0.1.1
+version: 0.2.0
 runtime: subprocess
-sourceURL: https://github.com/arch-anes/helm-schema
+sourceURL: https://github.com/AlexandrBoltris/arch-anes-helm-schema
 config:
   usage: schema [--check] [CHART]
   shortHelp: Generate values.schema.json from Helm template usage
@@ -474,6 +481,8 @@ Each usage node records these facts:
 - Which container kinds template operations require.
 - Which template locations provide the evidence.
 
+The last fact is an annotation. Schema rules never depend on it, and the formal conformance protocol omits it.
+
 A parent can exist only to contain a used child. Such a structural parent is not independently configurable.
 
 The analyzer merges evidence from all reachable template paths. The merge never removes evidence.
@@ -584,7 +593,37 @@ The fixed constant uses the effective default after Helm applies dependency and 
 
 ### Descriptions and defaults
 
-The generator copies plain YAML comments into `description` for configurable values. It ignores special annotation syntax and commented-out YAML.
+The generator copies plain YAML comments into `description` for configurable values. It ignores helm-docs annotation syntax and directives addressed to an editor or another tool, such as `# yaml-language-server:`. A schema generator must ignore that one in particular, because it names the file that this command writes.
+
+A comment documents the value it is indented with. A YAML decoder attaches every comment above a node to that node, so a note written inside an empty map would otherwise document the next key:
+
+```yaml
+labels:
+  # Used to add custom labels.
+annotations:
+```
+
+The decoder removes the indentation of a comment, so the generator reads it from the original file. A line indented more deeply than the following key documents the value above it instead.
+
+The generator also names the chart files that use a value. It appends a sorted, unique file list. One file stays on the label line and several files become a list:
+
+```json
+{
+  "replicas": {
+    "type": "integer",
+    "description": "Number of replicas.\n\nUsed in: example/templates/deployment.yaml",
+    "default": 2
+  }
+}
+```
+
+A comment and a file list are separated by one blank line. A value without a comment receives only the file list.
+
+The list names the file where template evaluation consumes the value. A value read inside a named template names the file that defines that template. A value that a helper only passes through to its caller names the file that renders the result. A value that Helm reads from chart metadata, such as a dependency condition, names that `Chart.yaml`.
+
+The list omits line numbers on purpose. A line number would rewrite the schema after an unrelated edit in the same file, and stable output is a requirement.
+
+The file list is an annotation. It documents a value and never changes which values the schema accepts.
 
 The generator adds `default` only to configurable values. A structural parent does not receive an unrelated default annotation.
 
@@ -660,7 +699,9 @@ The analyzer sorts diagnostics by file and location. Tests and library callers c
 
 ## Deterministic and safe output
 
-The JSON encoder uses compact output and one final newline. Object keys have a stable lexical order. Compact output prevents whitespace from exceeding Helm's chart-file limit.
+The JSON encoder uses two-space indentation and one final newline. Object keys have a stable lexical order. Indented output keeps a generated schema readable in review and in an editor that shows schema text.
+
+Indentation is safe for Helm's chart-file limit of 5 MiB. The command checks the encoded size of each schema after alias schemas have been combined and fails before writing an oversized file.
 
 Repeated generation from unchanged chart files produces identical bytes. Stable output prevents unrelated version-control changes.
 

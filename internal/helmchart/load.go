@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"maps"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -492,15 +493,17 @@ func bindDependencies(ch *chartv2.Chart) ([]dependencyBinding, error) {
 func loadMetadataUsage(root *chartv2.Chart) (*analyze.Usage, []analyze.ValueFlow, error) {
 	usage := analyze.NewUsage()
 	flows := make([]analyze.ValueFlow, 0)
-	if err := appendMetadataUsage(root, nil, usage, &flows); err != nil {
+	if err := appendMetadataUsage(root, root.Name(), nil, usage, &flows); err != nil {
 		return nil, nil, err
 	}
 	return usage, flows, nil
 }
 
 // appendMetadataUsage records dependency conditions, tags, imports, and global
-// value copies for one chart scope.
-func appendMetadataUsage(ch *chartv2.Chart, valuesPrefix []string, usage *analyze.Usage, flows *[]analyze.ValueFlow) error {
+// value copies for one chart scope. The chart path names the Chart.yaml file
+// that declares each dependency.
+func appendMetadataUsage(ch *chartv2.Chart, chartFullPath string, valuesPrefix []string, usage *analyze.Usage, flows *[]analyze.ValueFlow) error {
+	metadataSource := path.Join(chartFullPath, "Chart.yaml")
 	bindings, err := bindDependencies(ch)
 	if err != nil {
 		return err
@@ -517,10 +520,10 @@ func appendMetadataUsage(ch *chartv2.Chart, valuesPrefix []string, usage *analyz
 				if condition == "" {
 					continue
 				}
-				usage.MarkPath(append(valuesPrefixCopy(valuesPrefix), strings.Split(condition, ".")...)...)
+				usage.MarkPath(metadataSource, append(valuesPrefixCopy(valuesPrefix), strings.Split(condition, ".")...)...)
 			}
 			for _, tag := range dependency.Tags {
-				usage.MarkPath(append(valuesPrefixCopy(valuesPrefix), "tags", tag)...)
+				usage.MarkPath(metadataSource, append(valuesPrefixCopy(valuesPrefix), "tags", tag)...)
 			}
 			for _, imported := range dependency.ImportValues {
 				source, destination, ok := importValuePaths(imported)
@@ -534,7 +537,7 @@ func appendMetadataUsage(ch *chartv2.Chart, valuesPrefix []string, usage *analyz
 			}
 		}
 
-		if err := appendMetadataUsage(binding.chart, childPrefix, usage, flows); err != nil {
+		if err := appendMetadataUsage(binding.chart, path.Join(chartFullPath, "charts", binding.name), childPrefix, usage, flows); err != nil {
 			return err
 		}
 	}

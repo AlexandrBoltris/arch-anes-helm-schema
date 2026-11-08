@@ -22,12 +22,12 @@ type ValueFlow struct {
 }
 
 // MarkPath records a fixed non-template values path, such as a dependency
-// condition.
-func (u *Usage) MarkPath(path ...string) {
+// condition. The source names the chart file that consumes the value.
+func (u *Usage) MarkPath(source string, path ...string) {
 	if u == nil {
 		return
 	}
-	u.record(referenceForProperties(path...), readValue)
+	u.record(referenceForProperties(path...), readValue, source)
 }
 
 // ApplyValueFlows shares usage between both ends of every value copy. Each
@@ -42,7 +42,7 @@ func ApplyValueFlows(usage *Usage, flows []ValueFlow) error {
 	words := (len(flows) + 63) / 64
 	states := 0
 	for _, fact := range evidence {
-		queue := []flowState{{reference: fact.reference, mode: fact.mode, used: make([]uint64, words)}}
+		queue := []flowState{{reference: fact.reference, mode: fact.mode, sources: fact.sources, used: make([]uint64, words)}}
 		seen := make(map[string]struct{})
 		for len(queue) > 0 {
 			state := queue[0]
@@ -70,11 +70,11 @@ func ApplyValueFlows(usage *Usage, flows []ValueFlow) error {
 					if !matches {
 						continue
 					}
-					usage.record(mapped, state.mode)
+					usage.record(mapped, state.mode, state.sources...)
 
 					used := slices.Clone(state.used)
 					used[index/64] |= uint64(1) << uint(index%64)
-					queue = append(queue, flowState{reference: mapped, mode: state.mode, used: used})
+					queue = append(queue, flowState{reference: mapped, mode: state.mode, sources: state.sources, used: used})
 				}
 			}
 		}
@@ -96,10 +96,12 @@ func remapPropertyPrefix(input reference, from, to []string) (reference, bool) {
 	return mapped, true
 }
 
-// usageEvidence pairs one value path with one observed use.
+// usageEvidence pairs one value path with one observed use and the chart files
+// that produced it.
 type usageEvidence struct {
 	reference reference
 	mode      observation
+	sources   []string
 }
 
 // collectEvidence flattens a usage tree into observations with value paths.
@@ -110,23 +112,30 @@ func collectEvidence(usage *Usage) []usageEvidence {
 		if current == nil {
 			return
 		}
+		fact := func(mode observation) usageEvidence {
+			return usageEvidence{
+				reference: reference{segments: slices.Clone(path)},
+				mode:      mode,
+				sources:   slices.Clone(current.Sources),
+			}
+		}
 		if current.Read {
-			result = append(result, usageEvidence{reference: reference{segments: slices.Clone(path)}, mode: readValue})
+			result = append(result, fact(readValue))
 		}
 		if current.Exact {
-			result = append(result, usageEvidence{reference: reference{segments: slices.Clone(path)}, mode: exactValue})
+			result = append(result, fact(exactValue))
 		}
 		if current.Open {
-			result = append(result, usageEvidence{reference: reference{segments: slices.Clone(path)}, mode: openValue})
+			result = append(result, fact(openValue))
 		}
 		if current.Serialized {
-			result = append(result, usageEvidence{reference: reference{segments: slices.Clone(path)}, mode: serializedValue})
+			result = append(result, fact(serializedValue))
 		}
 		if current.AllowUnknown {
-			result = append(result, usageEvidence{reference: reference{segments: slices.Clone(path)}, mode: contextValue})
+			result = append(result, fact(contextValue))
 		}
 		if current.Iterated {
-			result = append(result, usageEvidence{reference: reference{segments: slices.Clone(path)}, mode: iterateValue})
+			result = append(result, fact(iterateValue))
 		}
 		for _, name := range sortedPropertyNames(current.Properties) {
 			walk(current.Properties[name], appendSegment(path, segment{kind: propertySegment, name: name}))
@@ -160,10 +169,12 @@ func stripPropertyPrefix(path []segment, prefix []string) ([]segment, bool) {
 	return slices.Clone(path[len(prefix):]), true
 }
 
-// flowState tracks one observation and the value flows already applied to it.
+// flowState tracks one observation, the chart files that produced it, and the
+// value flows already applied to it.
 type flowState struct {
 	reference reference
 	mode      observation
+	sources   []string
 	used      []uint64
 }
 

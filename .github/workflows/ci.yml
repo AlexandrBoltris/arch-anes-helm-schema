@@ -57,6 +57,41 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
             type=sha
+      - name: Check release version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          version=$(awk '$1 == "version:" { print $2; exit }' plugin.yaml)
+          test "$version" = "${GITHUB_REF_NAME#v}"
+      - name: Smoke-test CI image before publishing
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -eu
+          image=helm-schema:ci
+          docker build --build-arg VERSION="$VERSION" -t "$image" .
+          test "$(docker run --rm "$image" --version)" = "helm-schema $VERSION"
+          fixture=$(mktemp -d)
+          trap 'rm -rf "$fixture"' EXIT
+          cp -R testdata/basic "$fixture/.helm"
+          docker run --rm --user "$(id -u):$(id -g)" -v "$fixture:/chart" "$image" --engine werf .helm/
+          docker run --rm -v "$fixture:/chart:ro" "$image" --engine werf --check .helm/
+          docker run --rm -v "$fixture:/chart:ro" --entrypoint /bin/sh "$image" -c 'helm-schema --engine nelm --check .helm/'
+          printf '{}\n' > "$fixture/.helm/values.schema.json"
+          if docker run --rm -v "$fixture:/chart:ro" "$image" --engine werf --check .helm/; then
+            echo "Stale schema unexpectedly passed" >&2
+            exit 1
+          else
+            exit_code=$?
+            test "$exit_code" -eq 1
+          fi
+          rm "$fixture/.helm/values.schema.json"
+          if docker run --rm -v "$fixture:/chart:ro" "$image" --engine werf --check .helm/; then
+            echo "Missing schema unexpectedly passed" >&2
+            exit 1
+          else
+            exit_code=$?
+            test "$exit_code" -eq 1
+          fi
       - uses: docker/build-push-action@v7
         with:
           context: .
@@ -70,7 +105,7 @@ jobs:
           cache-to: type=gha,mode=max
 
   release:
-    needs: test
+    needs: [test, image]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:

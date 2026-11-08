@@ -4,7 +4,6 @@ package schema
 // descriptions, stable output, and invalid defaults.
 
 import (
-	"bytes"
 	"encoding/json"
 	"math"
 	"strings"
@@ -42,7 +41,7 @@ func TestGenerateUsedFixedAndMissingValues(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wantIndented := `{
+	want := `{
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
   "properties": {
@@ -73,13 +72,8 @@ func TestGenerateUsedFixedAndMissingValues(t *testing.T) {
   "additionalProperties": false
 }
 `
-	var want bytes.Buffer
-	if err := json.Compact(&want, []byte(wantIndented)); err != nil {
-		t.Fatal(err)
-	}
-	want.WriteByte('\n')
-	if !bytes.Equal(got, want.Bytes()) {
-		t.Fatalf("unexpected schema:\n%s\nwant:\n%s", got, want.Bytes())
+	if string(got) != want {
+		t.Fatalf("unexpected schema:\n%s\nwant:\n%s", got, want)
 	}
 
 	again, err := Generate(defaults, map[string]string{
@@ -1012,4 +1006,52 @@ func jsonEqual(left, right any) bool {
 	leftJSON, leftErr := json.Marshal(left)
 	rightJSON, rightErr := json.Marshal(right)
 	return leftErr == nil && rightErr == nil && string(leftJSON) == string(rightJSON)
+}
+
+func TestGenerateDocumentsUsageSources(t *testing.T) {
+	t.Parallel()
+
+	got, err := Generate(map[string]any{
+		"documented": "value",
+		"bare":       "value",
+	}, map[string]string{
+		"/documented": "Comment from values.yaml.",
+	}, &analyze.Usage{Properties: map[string]*analyze.Usage{
+		"documented": {Read: true, Sources: []string{"example/templates/configmap.yaml"}},
+		"bare": {Read: true, Sources: []string{
+			"example/templates/_helpers.tpl",
+			"example/templates/service.yaml",
+		}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	root := decodeSchema(t, got)
+	documented := property(t, root, "documented")["description"]
+	if documented != "Comment from values.yaml.\n\nUsed in: example/templates/configmap.yaml" {
+		t.Fatalf("documented description = %q", documented)
+	}
+	bare := property(t, root, "bare")["description"]
+	if bare != "Used in:\n- example/templates/_helpers.tpl\n- example/templates/service.yaml" {
+		t.Fatalf("bare description = %q", bare)
+	}
+}
+
+func TestGenerateOmitsUsageSectionWithoutSources(t *testing.T) {
+	t.Parallel()
+
+	got, err := Generate(map[string]any{"value": "text"}, map[string]string{
+		"/value": "Only a comment.",
+	}, &analyze.Usage{Properties: map[string]*analyze.Usage{
+		"value": {Read: true},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	description := property(t, decodeSchema(t, got), "value")["description"]
+	if description != "Only a comment." {
+		t.Fatalf("description = %q", description)
+	}
 }
